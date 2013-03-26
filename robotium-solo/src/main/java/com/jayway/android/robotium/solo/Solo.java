@@ -1,11 +1,13 @@
 package com.jayway.android.robotium.solo;
 
 import java.util.ArrayList;
+import junit.framework.Assert;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.pm.ActivityInfo;
 import android.view.KeyEvent;
 import android.view.View;
+import android.webkit.WebView;
 import android.widget.AbsListView;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -13,10 +15,8 @@ import android.widget.CheckedTextView;
 import android.widget.CompoundButton;
 import android.widget.DatePicker;
 import android.widget.EditText;
-import android.widget.GridView;
 import android.widget.ImageButton;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
 import android.widget.ScrollView;
@@ -29,10 +29,9 @@ import android.widget.ToggleButton;
 import android.app.Instrumentation.ActivityMonitor;
 
 /**
- * Contains all the methods that the sub-classes have. It supports test
- * cases that span over multiple activities. 
+ * Main class for development of Robotium tests.  
  * 
- * Robotium has full support for Activities, Dialogs, Toasts, Menus and Context Menus. 
+ * Robotium has full support for WebViews, Activities, Dialogs, Toasts, Menus and Context Menus. 
  * 
  * When writing tests there is no need to plan for or expect new activities in the test case. 
  * All is handled automatically by Robotium-Solo. Robotium-Solo can be used in conjunction with
@@ -61,7 +60,7 @@ import android.app.Instrumentation.ActivityMonitor;
  * </pre>
  *
  *
- * @author Renas Reda, renas.reda@jayway.com
+ * @author Renas Reda, renasreda@gmail.com
  *
  */
 
@@ -77,13 +76,17 @@ public class Solo {
 	protected final DialogUtils dialogUtils;
 	protected final TextEnterer textEnterer;
 	protected final Scroller scroller;
-	protected final RobotiumUtils robotiumUtils;
 	protected final Sleeper sleeper;
 	protected final Waiter waiter;
 	protected final Setter setter;
 	protected final Getter getter;
-	protected final int TIMEOUT = 20000;
-	protected final int SMALLTIMEOUT = 10000;
+	protected final WebUtils webUtils;
+	protected final Sender sender;
+	protected final ScreenshotTaker screenshotTaker;
+	protected final Instrumentation instrumentation;
+	protected String webUrl = null;
+	public final static int TIMEOUT = 20000;
+	public final static int SMALLTIMEOUT = 10000;
 	public final static int LANDSCAPE = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;   // 0
 	public final static int PORTRAIT = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;     // 1
 	public final static int RIGHT = KeyEvent.KEYCODE_DPAD_RIGHT;
@@ -107,19 +110,22 @@ public class Solo {
 	 */
 
 	public Solo(Instrumentation instrumentation, Activity activity) {
+		this.instrumentation = instrumentation;
         this.sleeper = new Sleeper();
+        this.sender = new Sender(instrumentation, sleeper);
         this.activityUtils = new ActivityUtils(instrumentation, activity, sleeper);
+        this.screenshotTaker = new ScreenshotTaker(activityUtils);
         this.viewFetcher = new ViewFetcher(activityUtils);
         this.dialogUtils = new DialogUtils(viewFetcher, sleeper);
+        this.webUtils = new WebUtils(instrumentation,activityUtils,viewFetcher, sleeper);
         this.scroller = new Scroller(instrumentation, activityUtils, viewFetcher, sleeper);
-        this.searcher = new Searcher(viewFetcher, scroller, sleeper);
+        this.searcher = new Searcher(viewFetcher, webUtils, scroller, sleeper);
         this.waiter = new Waiter(activityUtils, viewFetcher, searcher,scroller, sleeper);
         this.setter = new Setter(activityUtils);
-        this.getter = new Getter(activityUtils, viewFetcher, waiter);
+        this.getter = new Getter(activityUtils, waiter);
         this.asserter = new Asserter(activityUtils, waiter);
         this.checker = new Checker(viewFetcher, waiter);
-        this.robotiumUtils = new RobotiumUtils(instrumentation,activityUtils, sleeper);
-        this.clicker = new Clicker(activityUtils, viewFetcher, scroller,robotiumUtils, instrumentation, sleeper, waiter);
+        this.clicker = new Clicker(activityUtils, viewFetcher,sender, instrumentation, sleeper, waiter, webUtils);
         this.presser = new Presser(clicker, instrumentation, sleeper, waiter);
         this.textEnterer = new TextEnterer(instrumentation, activityUtils, clicker);
 	}
@@ -203,7 +209,7 @@ public class Solo {
 	 */
 	
 	public boolean waitForText(String text) {
-		return waiter.waitForText(text);
+		return (waiter.waitForText(text) != null);
 	}
 
 	
@@ -218,7 +224,7 @@ public class Solo {
 	 */
 	
 	public boolean waitForText(String text, int minimumNumberOfMatches, long timeout) {
-       return waiter.waitForText(text, minimumNumberOfMatches, timeout);
+		return (waiter.waitForText(text, minimumNumberOfMatches, timeout) != null);
     }
 	
 	 /**
@@ -233,7 +239,7 @@ public class Solo {
 	 */
 	
 	public boolean waitForText(String text, int minimumNumberOfMatches, long timeout, boolean scroll) {
-		return waiter.waitForText(text, minimumNumberOfMatches, timeout, scroll);
+		return (waiter.waitForText(text, minimumNumberOfMatches, timeout, scroll) != null);
     }
 	
 	/**
@@ -249,13 +255,14 @@ public class Solo {
 	 */
 	
 	public boolean waitForText(String text, int minimumNumberOfMatches, long timeout, boolean scroll, boolean onlyVisible) {
-		return waiter.waitForText(text, minimumNumberOfMatches, timeout, scroll, onlyVisible);
+		return (waiter.waitForText(text, minimumNumberOfMatches, timeout, scroll, onlyVisible, true) != null);
     }
 	
 	/**
 	 * Waits for a View of a certain class to be shown. Default timeout is 20 seconds. 
 	 * 
 	 * @param viewClass the {@link View} class to wait for
+	 * @return {@code true} if the {@link View} is shown and {@code false} if it is not shown before the timeout
 	 */
 	
 	public <T extends View> boolean waitForView(final Class<T> viewClass){
@@ -267,24 +274,24 @@ public class Solo {
 	 * Waits for a given View to be shown. Default timeout is 20 seconds. 
 	 * 
 	 * @param view the {@link View} object to wait for
+	 * @return {@code true} if the {@link View} is shown and {@code false} if it is not shown before the timeout
 	 * 
-	 * @return {@code true} if view is shown and {@code false} if it is not shown before the timeout
 	 */
-	
+
 	public <T extends View> boolean waitForView(View view){
 		return waiter.waitForView(view);
 	}
-	
+
 	/**
 	 * Waits for a given View to be shown. 
 	 * 
 	 * @param view the {@link View} object to wait for
 	 * @param timeout the amount of time in milliseconds to wait
 	 * @param scroll {@code true} if scrolling should be performed
+	 * @return {@code true} if the {@link View} is shown and {@code false} if it is not shown before the timeout
 	 * 
-	 * @return {@code true} if view is shown and {@code false} if it is not shown before the timeout
 	 */
-	
+
 	public <T extends View> boolean waitForView(View view, int timeout, boolean scroll){
 		return waiter.waitForView(view, timeout, scroll);
 	}
@@ -295,7 +302,8 @@ public class Solo {
 	 * @param viewClass the {@link View} class to wait for
 	 * @param minimumNumberOfMatches the minimum number of matches that are expected to be shown. {@code 0} means any number of matches
 	 * @param timeout the amount of time in milliseconds to wait
-	 * @return {@code true} if view is shown and {@code false} if it is not shown before the timeout
+	 * @return {@code true} if the {@link View} is shown and {@code false} if it is not shown before the timeout
+	 * 
 	 */
 	
 	public <T extends View> boolean waitForView(final Class<T> viewClass, final int minimumNumberOfMatches, final int timeout){
@@ -315,6 +323,7 @@ public class Solo {
 	 * @param timeout the amount of time in milliseconds to wait
 	 * @param scroll {@code true} if scrolling should be performed
 	 * @return {@code true} if the {@link View} is shown and {@code false} if it is not shown before the timeout
+	 * 
 	 */
 	
 	public <T extends View> boolean waitForView(final Class<T> viewClass, final int minimumNumberOfMatches, final int timeout,final boolean scroll){
@@ -327,11 +336,55 @@ public class Solo {
 	}
 	
 	/**
+	 * Waits for a WebElement. Default timeout is 20 seconds. 
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @return {@code true} if the {@link WebElement} is shown and {@code false} if it is not shown before the timeout
+	 * 
+	 */
+	
+	public boolean waitForWebElement(By by){
+		return (waiter.waitForWebElement(by, 0, TIMEOUT, true) != null);
+	}
+	
+	/**
+	 * Waits for a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param timeout the the amount of time in milliseconds to wait 
+	 * @param scroll {@code true} if scrolling should be performed
+	 * @return {@code true} if the {@link WebElement} is shown and {@code false} if it is not shown before the timeout
+	 * 
+	 */
+	
+	public boolean waitForWebElement(By by, int timeout, boolean scroll){
+		return (waiter.waitForWebElement(by, 0, timeout, scroll) != null);
+	}
+	
+	/**
+	 * Waits for a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param minimumNumberOfMatches the minimum number of matches that are expected to be shown. {@code 0} means any number of matches
+	 * @param timeout the the amount of time in milliseconds to wait 
+	 * @param scroll {@code true} if scrolling should be performed
+	 * @return {@code true} if the {@link WebElement} is shown and {@code false} if it is not shown before the timeout
+	 */
+	
+	public boolean waitForWebElement(By by, int minimumNumberOfMatches, int timeout, boolean scroll){
+		return (waiter.waitForWebElement(by, minimumNumberOfMatches, timeout, scroll) != null);
+	}
+	
+	
+	/**
 	 * Waits for a condition to be satisfied.
+	 * 
 	 * @param condition the condition to wait for
 	 * @param timeout the amount of time in milliseconds to wait
 	 * @return {@code true} if condition is satisfied and {@code false} if it is not satisfied before the timeout
+	 * 
 	 */
+	
 	public boolean waitForCondition(Condition condition, final int timeout){
 		return waiter.waitForCondition(condition, timeout);
 	}
@@ -530,18 +583,6 @@ public class Solo {
 	}
 	
 	/**
-	 * Returns an ArrayList of all the opened/active activities.
-	 * 
-	 * @return an ArrayList of all the opened/active activities
-	 *
-	 */
-	
-	public ArrayList<Activity> getAllOpenedActivities()
-	{
-		return activityUtils.getAllOpenedActivities();
-	}
-	
-	/**
 	 * Returns the current Activity.
 	 *
 	 * @return the current Activity
@@ -621,7 +662,18 @@ public class Solo {
 		asserter.assertMemoryNotLow();
 	}
 
+	/**
+	 * Waits for a Dialog to open.
+	 * 
+	 * @param timeout the amount of time in milliseconds to wait
+	 * @return {@code true} if the {@link android.app.Dialog} is opened before the timeout and {@code false} if it is not opened
+	 * 
+	 */
 
+	public boolean waitForDialogToOpen(long timeout) {
+		return dialogUtils.waitForDialogToOpen(timeout);
+	}
+	
 	/**
 	 * Waits for a Dialog to close.
 	 * 
@@ -642,7 +694,7 @@ public class Solo {
 	
 	public void goBack()
 	{
-		robotiumUtils.goBack();
+		sender.goBack();
 	}
 	
 	/**
@@ -739,6 +791,56 @@ public class Solo {
 	public void clickOnMenuItem(String text, boolean subMenu)
 	{
 		clicker.clickOnMenuItem(text, subMenu);
+	}
+	
+	/**
+	 * Clicks on the given WebElement.
+	 * 
+	 * @param webElement the WebElement to click
+	 * 
+	 */
+	
+	public void clickOnWebElement(WebElement webElement){
+		if(webElement == null)
+			Assert.assertTrue("WebElement is null and can therefore not be clicked!", false);
+
+		clicker.clickOnScreen(webElement.getLocationX(), webElement.getLocationY());
+	}
+	
+	/**
+	 * Clicks on a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * 
+	 */
+	
+	public void clickOnWebElement(By by){
+		clicker.clickOnWebElement(by, 0, true);
+	}
+	
+	/**
+	 * Clicks on a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param match if multiple objects match, this determines which one will be clicked
+	 * 
+	 */
+	
+	public void clickOnWebElement(By by, int match){
+		clicker.clickOnWebElement(by, match, true);
+	}
+	
+	/**
+	 * Clicks on a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param match if multiple objects match, this determines which one will be clicked
+	 * @param scroll {@code true} if scrolling should be performed
+	 * 
+	 */
+	
+	public void clickOnWebElement(By by, int match, boolean scroll){
+		clicker.clickOnWebElement(by, match, scroll);
 	}
 	
 	/**
@@ -855,6 +957,7 @@ public class Solo {
 	 * @param match if multiple objects match the text, this determines which one will be clicked
 	 *
 	 */
+	
 	public void clickOnText(String text, int match) {
 		clicker.clickOnText(text, false, match, true, 0);
 	}
@@ -988,7 +1091,7 @@ public class Solo {
 
 	/**
 	 * Clicks on a given list line and returns an ArrayList of the TextView objects that
-	 * the list line is showing. Will use the first list it finds.
+	 * the list line is showing. Will use the first ListView it finds.
 	 * 
 	 * @param line the line to be clicked
 	 * @return an {@code ArrayList} of the {@link TextView} objects located in the list line
@@ -1000,7 +1103,7 @@ public class Solo {
 	}
 
 	/**
-	 * Clicks on a given list line on a specified list and 
+	 * Clicks on a given list line on a specified ListView and 
 	 * returns an ArrayList of the TextView objects that the list line is showing.
 	 * 
 	 * @param line the line to be clicked
@@ -1015,7 +1118,7 @@ public class Solo {
 	
 	/**
 	 * Long clicks on a given list line and returns an ArrayList of the TextView objects that
-	 * the list line is showing. Will use the first list it finds.
+	 * the list line is showing. Will use the first ListView it finds.
 	 * 
 	 * @param line the line to be clicked
 	 * @return an {@code ArrayList} of the {@link TextView} objects located in the list line
@@ -1026,7 +1129,7 @@ public class Solo {
 	}
 	
 	/**
-	 * Long clicks on a given list line on a specified list and 
+	 * Long clicks on a given list line on a specified ListView and 
 	 * returns an ArrayList of the TextView objects that the list line is showing.
 	 * 
 	 * @param line the line to be clicked
@@ -1039,7 +1142,7 @@ public class Solo {
 	}
 	
 	/**
-	 * Long clicks on a given list line on a specified list and 
+	 * Long clicks on a given list line on a specified ListView and 
 	 * returns an ArrayList of the TextView objects that the list line is showing.
 	 * 
 	 * @param line the line to be clicked
@@ -1095,8 +1198,9 @@ public class Solo {
 	 *
 	 */
 
+	@SuppressWarnings("unchecked")
 	public boolean scrollDown() {
-		waiter.waitForViews(AbsListView.class, ScrollView.class);
+		waiter.waitForViews(AbsListView.class, ScrollView.class, WebView.class);
 		return scroller.scroll(Scroller.DOWN);
 	}
 
@@ -1104,8 +1208,9 @@ public class Solo {
 	 * Scrolls to the bottom of the screen.
 	 */
 
+	@SuppressWarnings("unchecked")
 	public void scrollToBottom() {
-		waiter.waitForViews(AbsListView.class, ScrollView.class);
+		waiter.waitForViews(AbsListView.class, ScrollView.class, WebView.class);
 		scroller.scroll(Scroller.DOWN, true);
 	}
 
@@ -1118,22 +1223,24 @@ public class Solo {
 	 *
 	 */
 
+	@SuppressWarnings("unchecked")
 	public boolean scrollUp(){
-		waiter.waitForViews(AbsListView.class, ScrollView.class);
+		waiter.waitForViews(AbsListView.class, ScrollView.class, WebView.class);
 		return scroller.scroll(Scroller.UP);
 	}
 
 	/**
 	 * Scrolls to the top of the screen.
 	 */
-
+	
+	@SuppressWarnings("unchecked")
 	public void scrollToTop() {
-		waiter.waitForViews(AbsListView.class, ScrollView.class);
+		waiter.waitForViews(AbsListView.class, ScrollView.class, WebView.class);
 		scroller.scroll(Scroller.UP, true);
 	}
 
 	/**
-	 * Scrolls down a given list.
+	 * Scrolls down a given ListView.
 	 * 
 	 * @param list the {@link AbsListView} to be scrolled
 	 * @return {@code true} if more scrolling can be done
@@ -1145,7 +1252,7 @@ public class Solo {
 	}
 
 	/**
-	 * Scrolls to the bottom of a given list.
+	 * Scrolls to the bottom of a given ListView.
 	 *
 	 * @param list the {@link AbsListView} to be scrolled
 	 * @return {@code true} if more scrolling can be done
@@ -1157,7 +1264,7 @@ public class Solo {
 	}
 
 	/**
-	 * Scrolls up a given list.
+	 * Scrolls up a given ListView.
 	 * 
 	 * @param list the {@link AbsListView} to be scrolled
 	 * @return {@code true} if more scrolling can be done
@@ -1169,7 +1276,7 @@ public class Solo {
 	}
 
 	/**
-	 * Scrolls to the top of a given list.
+	 * Scrolls to the top of a given ListView.
 	 *
 	 * @param list the {@link AbsListView} to be scrolled
 	 * @return {@code true} if more scrolling can be done
@@ -1181,7 +1288,7 @@ public class Solo {
 	}
 
 	/**
-	 * Scrolls down a list with a given index.
+	 * Scrolls down a ListView with a given index.
 	 * 
 	 * @param index the {@link ListView} to be scrolled. {@code 0} if only one list is available
 	 * @return {@code true} if more scrolling can be done
@@ -1193,7 +1300,7 @@ public class Solo {
 	}
 
 	/**
-	 * Scrolls a list with a given index to the bottom.
+	 * Scrolls a ListView with a given index to the bottom.
 	 *
 	 * @param index the {@link ListView} to be scrolled. {@code 0} if only one list is available
 	 * @return {@code true} if more scrolling can be done
@@ -1205,7 +1312,7 @@ public class Solo {
 	}
 	
 	/**
-	 * Scrolls up a list with a given index.
+	 * Scrolls up a ListView with a given index.
 	 * 
 	 * @param index the {@link ListView} to be scrolled. {@code 0} if only one list is available
 	 * @return {@code true} if more scrolling can be done
@@ -1217,7 +1324,7 @@ public class Solo {
 	}
 	
     /**
-   	 * Scrolls a list with a given index to the top.
+   	 * Scrolls a ListView with a given index to the top.
    	 *
    	 * @param index the {@link ListView} to be scrolled. {@code 0} if only one list is available
    	 * @return {@code true} if more scrolling can be done
@@ -1229,7 +1336,7 @@ public class Solo {
    	}
    	
    	/**
-	 * Scroll the given list to a given line 
+	 * Scroll the given ListView to a given line. 
 	 *
 	 * @param absListView the {@link AbsListView} to scroll
 	 * @param line the line to scroll to
@@ -1240,8 +1347,8 @@ public class Solo {
    	}
    	
 	/**
-	 * Scroll a list with a given index to a given line 
-	 *
+	 * Scroll a ListView with a given index to a given line. 
+	 *g
 	 * @param index the index of the {@link AbsListView} to scroll
 	 * @param line the line to scroll to
 	 */
@@ -1265,10 +1372,10 @@ public class Solo {
 	}
 
 	/**
-	 * Scrolls horizontally.
+	 * Scrolls a View horizontally.
 	 *
-	 * @param view the view to scroll
-	 * @param side the side to which to scroll; {@link #RIGHT} or {@link #LEFT}
+	 * @param view the View to scroll
+	 * @param side the side to scroll; {@link #RIGHT} or {@link #LEFT}
 	 *
 	 */
 
@@ -1414,6 +1521,21 @@ public class Solo {
 	}
 	
 	/**
+	 * Enters text in a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param text the text to enter
+	 * 
+	 */
+	
+	public void enterTextInWebElement(By by, String text){
+		if(waiter.waitForWebElement(by, 0, SMALLTIMEOUT, false) == null)
+			Assert.assertTrue("There is no web element with " + by.getClass().getSimpleName() + ": " + by.getValue(), false);
+
+		webUtils.enterTextIntoWebElement(by, text);
+	}
+	
+	/**
 	 * Types text in an EditText with a given index.
 	 *
 	 * @param index the index of the {@link EditText}. {@code 0} if only one is available
@@ -1439,6 +1561,49 @@ public class Solo {
 	}
 	
 	/**
+	 * Types text in a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param text the text to enter
+	 * 
+	 */
+	
+	public void typeTextInWebElement(By by, String text){
+		clickOnWebElement(by);
+		waiter.waitForWebElement(by, 0, SMALLTIMEOUT, false);
+		instrumentation.sendStringSync(text);
+	}
+	
+	/**
+	 * Types text in a WebElement.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param text the text to enter
+	 * @param match if multiple objects match, this determines which one will be typed in
+	 * 
+	 */
+	
+	public void typeTextInWebElement(By by, String text, int match){
+		clickOnWebElement(by, match);
+		waiter.waitForWebElement(by, match, SMALLTIMEOUT, false);
+		instrumentation.sendStringSync(text);
+	}
+	
+	/**
+	 * Types text in a WebElement.
+	 * 
+	 * @param webElement the WebElement to type text in
+	 * @param text the text to enter
+	 * 
+	 */
+	
+	public void typeTextInWebElement(WebElement webElement, String text){
+		clickOnWebElement(webElement);
+		instrumentation.sendStringSync(text);
+	}
+
+	
+	/**
 	 * Clears the value of an EditText.
 	 * 
 	 * @param index the index of the {@link EditText} that should be cleared. 0 if only one is available
@@ -1460,6 +1625,17 @@ public class Solo {
     	waiter.waitForView(editText, SMALLTIMEOUT);
     	textEnterer.setEditText(editText, "");	
     }
+    
+    /**
+	 * Clears text in a web element.
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * 
+	 */
+	
+	public void clearTextInWebElement(By by){
+		webUtils.enterTextIntoWebElement(by, "");
+	}
 	
 	/**
 	 * Clicks on an ImageView with a given index.
@@ -1612,11 +1788,30 @@ public class Solo {
 	 * Returns a View with a given resource id. 
 	 * 
 	 * @param id the R.id of the {@link View} to be returned 
-	 * @return a {@link View} with a given id
+	 * @return a {@link View} with a given id 
 	 */
 
 	public View getView(int id){
-		return getter.getView(id);
+		return getView(id, 0);
+	}
+	
+	/**
+	 * Returns a View with a given resource id and index. 
+	 * 
+	 * @param id the R.id of the {@link View} to be returned 
+	 * @param index the index of the {@link View}. {@code 0} if only one is available
+	 * @return a {@link View} with a given id and index
+	 */
+
+	public View getView(int id, int index){
+		View viewToReturn = getter.getView(id, index);
+		
+		if(viewToReturn == null) {
+			int match = index + 1;
+			Assert.assertTrue(match + " views with id: '" + id + "' are not found!", false);
+		}
+		
+		return viewToReturn;
 	}
 
 	/**
@@ -1624,7 +1819,7 @@ public class Solo {
 	 * 
 	 * @param viewClass the class of the requested view
 	 * @param index the index of the {@link View}. {@code 0} if only one is available
-	 * @return a {@link View} with a given class and index
+	 * @return a {@link View} with a given class and index 
 	 */
 
 	public <T extends View> T getView(Class<T> viewClass, int index){
@@ -1632,8 +1827,46 @@ public class Solo {
 	}
 	
 	/**
-	 * Returns an ArrayList of the View objects currently shown in the focused 
-	 * Activity or Dialog.
+	 * Returns a WebElement with a given index
+	 * 
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @param index the index of the {@link WebElement}. {@code 0} if only one is available
+	 * @return a {@link WebElement} with a given index
+	 */
+	
+	public WebElement getWebElement(By by, int index){
+		int match = index + 1;
+		WebElement webElement = waiter.waitForWebElement(by, match, SMALLTIMEOUT, true);
+		
+		if(webElement == null)
+			Assert.assertTrue(match + " web elements with " + by.getClass().getSimpleName() + ": '" + by.getValue() + "' are not found!", false);
+		
+		return webElement;
+	}
+	
+	/**
+	 * Returns the current web page URL.
+	 * 
+	 * @return the current web page URL
+	 * 
+	 */
+
+	public String getWebUrl() {
+		final WebView webView = waiter.waitForAndGetView(0, WebView.class);
+
+		if(webView == null)
+			Assert.assertTrue("No WebView is found!", false);
+
+		instrumentation.runOnMainSync(new Runnable() {
+			public void run() {
+				webUrl = webView.getUrl();
+			}
+		});
+		return webUrl;
+	}
+	
+	/**
+	 * Returns an ArrayList of the Views currently shown in the focused Activity or Dialog.
 	 *
 	 * @return an {@code ArrayList} of the {@link View} objects currently shown in the
 	 * focused window
@@ -1645,11 +1878,11 @@ public class Solo {
 	}
 
 	/**
-	 * Returns an {@code ArrayList} of {@code View}s of the specified {@code Class} located in the current
-	 * {@code Activity}.
+	 * Returns an ArrayList of Views of the specified Class located in the focused Activity or Dialog.
 	 *
-	 * @param classToFilterBy return all instances of this class, e.g. {@code Button.class} or {@code GridView.class}
+	 * @param classToFilterBy return all instances of this class. Examples are {@code Button.class} or {@code ListView.class}
 	 * @return an {@code ArrayList} of {@code View}s of the specified {@code Class} located in the current {@code Activity}
+	 * 
 	 */
 
 	public <T extends View> ArrayList<T> getCurrentViews(Class<T> classToFilterBy) {
@@ -1657,269 +1890,39 @@ public class Solo {
 	}
 
 	/**
-	 * Returns an {@code ArrayList} of {@code View}s of the specified {@code Class} located under the specified {@code parent}.
+	 * Returns an ArrayList of Views of the specified Class located under the specified parent.
 	 *
-	 * @param classToFilterBy return all instances of this class, e.g. {@code Button.class} or {@code GridView.class}
+	 * @param classToFilterBy return all instances of this class. Examples are {@code Button.class} or {@code ListView.class}
 	 * @param parent the parent {@code View} for where to start the traversal
 	 * @return an {@code ArrayList} of {@code View}s of the specified {@code Class} located under the specified {@code parent}
+	 * 
 	 */
+	
 	public <T extends View> ArrayList<T> getCurrentViews(Class<T> classToFilterBy, View parent) {
 		return viewFetcher.getCurrentViews(classToFilterBy, parent);
 	}
-
 	
 	/**
-	 * Returns an ArrayList of the ImageView objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link ImageView} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<ImageView> getCurrentImageViews() {
-		return viewFetcher.getCurrentViews(ImageView.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the ImageView objects currently shown in the focused 
-	 * Activity or Dialog.
+	 * Returns an ArrayList of WebElements currently shown in the active WebView.
 	 * 
-	 * @param parent the parent {@link View} from which the {@link ImageView} objects should be returned. {@code null} if
-	 * all TextView objects from the currently focused window e.g. Activity should be returned
-	 *
-	 * @return an {@code ArrayList} of the {@link ImageView} objects currently shown in the
-	 * focused window
-	 *
+	 * @return an {@code ArrayList} of the {@link WebElement} objects currently shown in the active WebView
 	 */
 	
-	public ArrayList<ImageView> getCurrentImageViews(View parent) {
-		return viewFetcher.getCurrentViews(ImageView.class, parent);
-	}
-	
-	
-	/**
-	 * Returns an ArrayList of the EditText objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link EditText} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<EditText> getCurrentEditTexts() {
-		return viewFetcher.getCurrentViews(EditText.class);
+	public ArrayList<WebElement> getCurrentWebElements(){
+		return webUtils.getCurrentWebElements();
 	}
 	
 	/**
-	 * Returns an ArrayList of the ListView objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link ListView}  objects currently shown in the
-	 * focused window
+	 * Returns an ArrayList of WebElements of the specified By object currently shown in the active WebView.
 	 * 
-	 */
-
-	public ArrayList<ListView> getCurrentListViews() {
-		return viewFetcher.getCurrentViews(ListView.class);
-	}
-
-	/**
-	 * Returns an ArrayList of the ScrollView objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link ScrollView} objects currently shown in the
-	 * focused window
-	 *
-	 */
-
-    public ArrayList<ScrollView> getCurrentScrollViews() {
-		return viewFetcher.getCurrentViews(ScrollView.class);
-	}
-
-	
-	/**
-	 * Returns an ArrayList of the Spinner objects (drop-down menus) currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link Spinner} objects (drop-down menus) currently shown in the
-	 * focused window
-	 *
+	 * @param by the By object. Examples are By.id("id") and By.name("name")
+	 * @return an {@code ArrayList} of the {@link WebElement} objects currently shown in the active WebView 
 	 */
 	
-	public ArrayList<Spinner> getCurrentSpinners() {
-		return viewFetcher.getCurrentViews(Spinner.class);
+	public ArrayList<WebElement> getCurrentWebElements(By by){
+		return webUtils.getCurrentWebElements(by);
 	}
-	
-	/**
-	 * Returns an ArrayList of the TextView objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @param parent the parent {@link View} from which the {@link TextView} objects should be returned. {@code null} if
-	 * all TextView objects from the currently focused window e.g. Activity should be returned
-	 *
-	 * @return an {@code ArrayList} of the {@link TextView} objects currently shown in the
-	 * focused window
-	 *
-	 */
-
-	public ArrayList<TextView> getCurrentTextViews(View parent) {
-		return viewFetcher.getCurrentViews(TextView.class, parent);
-	}
-	
-	/**
-	 * Returns an ArrayList of the GridView objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link GridView} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<GridView> getCurrentGridViews() {
-		return viewFetcher.getCurrentViews(GridView.class);
-	}
-	
-	
-	/**
-	 * Returns an ArrayList of the Button objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link Button} objects currently shown in the
-	 * focused window
-	 * 
-	 */
-	
-	public ArrayList<Button> getCurrentButtons() {
-		return viewFetcher.getCurrentViews(Button.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the ToggleButton objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link ToggleButton} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<ToggleButton> getCurrentToggleButtons() {
-		return viewFetcher.getCurrentViews(ToggleButton.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the RadioButton objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link RadioButton} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<RadioButton> getCurrentRadioButtons() {
-		return viewFetcher.getCurrentViews(RadioButton.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the CheckBox objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link CheckBox} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<CheckBox> getCurrentCheckBoxes() {
-		return viewFetcher.getCurrentViews(CheckBox.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the ImageButton objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link ImageButton} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<ImageButton> getCurrentImageButtons() {
-		return viewFetcher.getCurrentViews(ImageButton.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the DatePicker objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link DatePicker} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<DatePicker> getCurrentDatePickers() {
-		return viewFetcher.getCurrentViews(DatePicker.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the TimePicker objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link TimePicker} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<TimePicker> getCurrentTimePickers() {
-		return viewFetcher.getCurrentViews(TimePicker.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the NumberPicker objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link NumberPicker} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	@SuppressWarnings({ "rawtypes", "unchecked" })
-    public <T extends LinearLayout> ArrayList<T> getCurrentNumberPickers() {
-	    try {
-	        Class numberPickerClass = Class.forName("android.widget.NumberPicker");
-	        if (numberPickerClass != null) {
-	            return viewFetcher.getCurrentViews(numberPickerClass);
-	        }
-	    } catch(ClassNotFoundException cnfe) {
-	        cnfe.printStackTrace();
-	    }
-	    return new ArrayList<T>();
-	}
-	
-	/**
-	 * Returns an ArrayList of the SlidingDrawer objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link SlidingDrawer} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<SlidingDrawer> getCurrentSlidingDrawers() {
-		return viewFetcher.getCurrentViews(SlidingDrawer.class);
-	}
-	
-	/**
-	 * Returns an ArrayList of the ProgressBar objects currently shown in the focused 
-	 * Activity or Dialog.
-	 *
-	 * @return an {@code ArrayList} of the {@link ProgressBar} objects currently shown in the
-	 * focused window
-	 *
-	 */
-	
-	public ArrayList<ProgressBar> getCurrentProgressBars() {
-		return viewFetcher.getCurrentViews(ProgressBar.class);
-	}
-	
+		
 	/**
 	 * Checks if a RadioButton with a given index is checked.
 	 *
@@ -2005,6 +2008,7 @@ public class Solo {
 	 * @return {@code true} if the given text is checked and {@code false} if it is not checked
 	 */
 	
+	@SuppressWarnings("unchecked")
 	public boolean isTextChecked(String text){
 		waiter.waitForViews(CheckedTextView.class, CompoundButton.class);
 		
@@ -2053,7 +2057,7 @@ public class Solo {
 	
 	public void sendKey(int key)
 	{
-		robotiumUtils.sendKeyCode(key);
+		sender.sendKeyCode(key);
     }
 	
 	/**
@@ -2063,8 +2067,7 @@ public class Solo {
 	 *
 	 */
 	
-	public void goBackToActivity(String name)
-	{
+	public void goBackToActivity(String name) {
 		activityUtils.goBackToActivity(name);
 	}
 	
@@ -2093,6 +2096,32 @@ public class Solo {
 	{
 		return waiter.waitForActivity(name, timeout);
 	}
+
+    /**
+     * Waits for the given Activity. Default timeout is 20 seconds.
+     *
+     * @param activityClass the class of the {@code Activity} to wait for 
+     * @return {@code true} if {@code Activity} appears before the timeout and {@code false} if it does not
+     *
+     */
+
+    public boolean waitForActivity(Class<? extends Activity> activityClass){
+        return waiter.waitForActivity(activityClass, TIMEOUT);
+    }
+
+    /**
+     * Waits for the given Activity.
+     *
+     * @param activityClass the class of the {@code Activity} to wait for e.g. {@code "MyActivity"}
+     * @param timeout the amount of time in milliseconds to wait
+     * @return {@code true} if {@link Activity} appears before the timeout and {@code false} if it does not
+     *
+     */
+
+    public boolean waitForActivity(Class<? extends Activity> activityClass, int timeout)
+    {
+        return waiter.waitForActivity(activityClass, timeout);
+    }
 	
 	
 	/**
@@ -2209,17 +2238,6 @@ public class Solo {
     public void finalize() throws Throwable {
 		activityUtils.finalize();
 	}
-
-    /**
-     * All inactive activities are finished.
-     * 
-     * @deprecated Method has been deprecated as there are no longer strong references to activities.  
-     * 
-     */
-
-    public void finishInactiveActivities(){
-    	activityUtils.finishInactiveActivities();  	 	
-    }
     
     /**
 	 * The activities that are alive are finished. Usually used in tearDown().
@@ -2238,7 +2256,7 @@ public class Solo {
 	
 	public void takeScreenshot(){
 		View decorView = viewFetcher.getRecentDecorView(viewFetcher.getWindowDecorViews());
-		robotiumUtils.takeScreenshot(decorView, null);
+		screenshotTaker.takeScreenshot(decorView, null);
 	}
 	
 	/**
@@ -2251,7 +2269,20 @@ public class Solo {
 	
 	public void takeScreenshot(String name){
 		View decorView = viewFetcher.getRecentDecorView(viewFetcher.getWindowDecorViews());
-		robotiumUtils.takeScreenshot(decorView, name);
+		screenshotTaker.takeScreenshot(decorView, name);
 	}
 	
+	/**
+	 * Takes a screenshot and saves it with a given name in "/sdcard/Robotium-Screenshots/". 
+	 * Requires write permission (android.permission.WRITE_EXTERNAL_STORAGE) in AndroidManifest.xml of the application under test.
+	 *
+	 * @param name the name to give the screenshot
+	 * @param quality the compression rate. From 0 (compress for lowest size) to 100 (compress for maximum quality).
+	 *
+	 */
+	
+	public void takeScreenshot(String name, int quality){
+		View decorView = viewFetcher.getRecentDecorView(viewFetcher.getWindowDecorViews());
+		screenshotTaker.takeScreenshot(decorView, name, quality);
+	}
 }
