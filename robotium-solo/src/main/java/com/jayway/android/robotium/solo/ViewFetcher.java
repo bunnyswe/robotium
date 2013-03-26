@@ -5,12 +5,13 @@ import java.util.ArrayList;
 import java.util.List;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebView;
 
 /**
  * Contains view methods. Examples are getViews(),
  * getCurrentTextViews(), getCurrentImageViews().
  *
- * @author Renas Reda, renas.reda@jayway.com
+ * @author Renas Reda, renasreda@gmail.com
  *
  */
 
@@ -37,7 +38,6 @@ class ViewFetcher {
 	 *
 	 * @param view the {@code View} whose top parent is requested
 	 * @return the top parent {@code View}
-	 *
 	 */
 
 	public View getTopParent(View view) {
@@ -55,12 +55,11 @@ class ViewFetcher {
 	 *
 	 * @param view the view who's parent should be returned
 	 * @return the parent scroll view, list view or null
-	 *
 	 */
 
 	public View getScrollOrListParent(View view) {
 
-	    if (!(view instanceof android.widget.AbsListView) && !(view instanceof android.widget.ScrollView)) {
+	    if (!(view instanceof android.widget.AbsListView) && !(view instanceof android.widget.ScrollView) && !(view instanceof WebView)) {
 	        try{
 	            return getScrollOrListParent((View) view.getParent());
 	        }catch(Exception e){
@@ -76,33 +75,34 @@ class ViewFetcher {
 	 *
 	 * @param onlySufficientlyVisible if only sufficiently visible views should be returned
 	 * @return all the views contained in the DecorViews
-	 *
 	 */
 
 	public ArrayList<View> getAllViews(boolean onlySufficientlyVisible) {
-	    final View[] views = getWindowDecorViews();
-	    final ArrayList<View> allViews = new ArrayList<View>();
-	    final View[] nonDecorViews = getNonDecorViews(views);
+		final View[] views = getWindowDecorViews();
+		final ArrayList<View> allViews = new ArrayList<View>();
+		final View[] nonDecorViews = getNonDecorViews(views);
+		View view = null;
 
+		if(nonDecorViews != null){
+			for(int i = 0; i < nonDecorViews.length; i++){
+				view = nonDecorViews[i];
+				try {
+					addChildren(allViews, (ViewGroup)view, onlySufficientlyVisible);
+				} catch (Exception ignored) {}
+				if(view != null) allViews.add(view);
+			}
+		}
 
-	    if (views != null && views.length > 0) {
-	        View view;
-	        for(int i = 0; i < nonDecorViews.length; i++){
-	            view = nonDecorViews[i];
-	            try {
-	                addChildren(allViews, (ViewGroup)view, onlySufficientlyVisible);
-	            } catch (Exception ignored) {
-	            }
-                     if(view != null) allViews.add(view);
-	        }
-	        view = getRecentDecorView(views);
-	        try {
-	            addChildren(allViews, (ViewGroup)view, onlySufficientlyVisible);
-	        } catch (Exception ignored) {
-	        }
-                 if(view != null) allViews.add(view);
-	    }
-	    return allViews;
+		if (views != null && views.length > 0) {
+			view = getRecentDecorView(views);
+			try {
+				addChildren(allViews, (ViewGroup)view, onlySufficientlyVisible);
+			} catch (Exception ignored) {}
+
+			if(view != null) allViews.add(view);
+		}
+
+		return allViews;
 	}
 
 	/**
@@ -110,7 +110,6 @@ class ViewFetcher {
 	 *
 	 * @param views the views to check
 	 * @return the most recent DecorView
-	 *
 	 */
 
 	 public final View getRecentDecorView(View[] views) {
@@ -134,7 +133,6 @@ class ViewFetcher {
 	 *
 	 * @param views the views to check
 	 * @return the most recent view container
-	 *
 	 */
 
 	 private final View getRecentContainer(View[] views) {
@@ -152,24 +150,29 @@ class ViewFetcher {
 		 return container;
 	 }
 
-	/**
-	 * Returns all views that are non DecorViews
-	 *
-	 * @param views the views to check
-	 * @return the non DecorViews
-	 */
+	 /**
+	  * Returns all views that are non DecorViews
+	  *
+	  * @param views the views to check
+	  * @return the non DecorViews
+	  */
 
 	 private final View[] getNonDecorViews(View[] views) {
-		 final View[] decorViews = new View[views.length];
-		 int i = 0;
-		 View view;
+		 View[] decorViews = null;
 
-		 for (int j = 0; j < views.length; j++) {
-			 view = views[j];
-			 if (view != null && !(view.getClass().getName()
-					 .equals("com.android.internal.policy.impl.PhoneWindow$DecorView"))) {
-				 decorViews[i] = view;
-				 i++;
+		 if(views != null) {
+			 decorViews = new View[views.length];
+
+			 int i = 0;
+			 View view;
+
+			 for (int j = 0; j < views.length; j++) {
+				 view = views[j];
+				 if (view != null && !(view.getClass().getName()
+						 .equals("com.android.internal.policy.impl.PhoneWindow$DecorView"))) {
+					 decorViews[i] = view;
+					 i++;
+				 }
 			 }
 		 }
 		 return decorViews;
@@ -183,7 +186,6 @@ class ViewFetcher {
 	 * @param parent the {@code View} whose children should be returned, or {@code null} for all
 	 * @param onlySufficientlyVisible if only sufficiently visible views should be returned
 	 * @return all {@code View}s located in the currently active {@code Activity}, never {@code null}
-	 *
 	 */
 
 	public ArrayList<View> getViews(View parent, boolean onlySufficientlyVisible) {
@@ -210,7 +212,6 @@ class ViewFetcher {
 	 * @param views an {@code ArrayList} of {@code View}s
 	 * @param viewGroup the {@code ViewGroup} to extract children from
 	 * @param onlySufficientlyVisible if only sufficiently visible views should be returned
-	 *
 	 */
 
 	private void addChildren(ArrayList<View> views, ViewGroup viewGroup, boolean onlySufficientlyVisible) {
@@ -236,7 +237,6 @@ class ViewFetcher {
 	 *
 	 * @param view the view to check
 	 * @return true if the view is sufficiently shown
-	 *
 	 */
 
 	public final boolean isViewSufficientlyShown(View view){
@@ -272,6 +272,7 @@ class ViewFetcher {
 	 * @return the height of the scroll or list view parent
 	 */
 
+	@SuppressWarnings("deprecation")
 	public float getScrollListWindowHeight(View view) {
 		final int[] xyParent = new int[2];
 		View parent = getScrollOrListParent(view);
@@ -376,9 +377,9 @@ class ViewFetcher {
 	}
 
 	/**
-	 * Returns the WindorDecorViews shown on the screen
+	 * Returns the WindorDecorViews shown on the screen.
+	 * 
 	 * @return the WindorDecorViews shown on the screen
-	 *
 	 */
 
 	public View[] getWindowDecorViews()
@@ -405,6 +406,9 @@ class ViewFetcher {
 		return null;
 	}
 	
+	/**
+	 * Sets the window manager string.
+	 */
 	private void setWindowManagerString(){
 
 		if (android.os.Build.VERSION.SDK_INT >= 17) {

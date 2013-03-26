@@ -1,33 +1,32 @@
 package com.jayway.android.robotium.solo;
 
 import android.view.View;
-
 import java.util.Comparator;
 
 /**
  * Orders {@link View}s by their location on-screen.
  * 
- * @since 19/12/2012
  */
-public class ViewLocationOnScreenComparator implements Comparator<View> {
+
+class ViewLocationComparator implements Comparator<View> {
 
 	private final int a[] = new int[2];
 	private final int b[] = new int[2];
 	private final int axis1, axis2;
 
-	public ViewLocationOnScreenComparator() {
+	public ViewLocationComparator() {
 		this(true);
 	}
 
 	/**
 	 * @param yAxisFirst Whether the y-axis should be compared before the x-axis.
 	 */
-	public ViewLocationOnScreenComparator(boolean yAxisFirst) {
+
+	public ViewLocationComparator(boolean yAxisFirst) {
 		this.axis1 = yAxisFirst ? 1 : 0;
 		this.axis2 = yAxisFirst ? 0 : 1;
 	}
 
-	@Override
 	public int compare(View lhs, View rhs) {
 		lhs.getLocationOnScreen(a);
 		rhs.getLocationOnScreen(b);

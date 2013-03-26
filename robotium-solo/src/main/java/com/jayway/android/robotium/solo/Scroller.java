@@ -6,6 +6,7 @@ import android.app.Instrumentation;
 import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
+import android.webkit.WebView;
 import android.widget.AbsListView;
 import android.widget.GridView;
 import android.widget.ListView;
@@ -16,16 +17,16 @@ import android.widget.ScrollView;
  * Contains scroll methods. Examples are scrollDown(), scrollUpList(),
  * scrollToSide().
  *
- * @author Renas Reda, renas.reda@jayway.com
+ * @author Renas Reda, renasreda@gmail.com
  *
  */
 
 class Scroller {
 
-	public enum Direction {UP, DOWN}
 	public static final int DOWN = 0;
 	public static final int UP = 1;
 	public enum Side {LEFT, RIGHT}
+	private boolean canScroll = false;
 	private final Instrumentation inst;
 	private final ActivityUtils activityUtils;
 	private final ViewFetcher viewFetcher;
@@ -59,7 +60,6 @@ class Scroller {
 	 * @param fromY X coordinate of the initial touch, in screen coordinates
 	 * @param toY Y coordinate of the drag destination, in screen coordinates
 	 * @param stepCount How many move steps to include in the drag
-	 *
 	 */
 
 	public void drag(float fromX, float toX, float fromY, float toY,
@@ -96,7 +96,6 @@ class Scroller {
 	 *
 	 * @param direction the direction to be scrolled
 	 * @return {@code true} if scrolling occurred, false if it did not
-	 *
 	 */
 
 	private boolean scrollScrollView(final ScrollView view, int direction){
@@ -137,7 +136,6 @@ class Scroller {
 	 * Scrolls a ScrollView to top or bottom.
 	 *
 	 * @param direction the direction to be scrolled
-	 *
 	 */
 
 	private void scrollScrollViewAllTheWay(final ScrollView view, final int direction) {
@@ -163,7 +161,6 @@ class Scroller {
 	 * @param allTheWay <code>true</code> if the view should be scrolled to the beginning or end,
 	 *                  <code>false</code> to scroll one page up or down.
 	 * @return {@code true} if more scrolling can be done
-	 *
 	 */
 
 	public boolean scroll(int direction, boolean allTheWay) {
@@ -172,7 +169,7 @@ class Scroller {
 				removeInvisibleViews(viewFetcher.getAllViews(true));
 		@SuppressWarnings("unchecked")
 		ArrayList<View> views = RobotiumUtils.filterViewsToSet(new Class[] { ListView.class,
-				ScrollView.class, GridView.class}, viewList);
+				ScrollView.class, GridView.class, WebView.class}, viewList);
 		View view = viewFetcher.getFreshestView(views);
 
 		if (view == null)
@@ -192,8 +189,38 @@ class Scroller {
 				return scrollScrollView((ScrollView)view, direction);
 			}
 		}
-
+		if(view instanceof WebView){
+			return scrollWebView((WebView)view, direction, allTheWay);
+		}
 		return false;
+	}
+	
+	/**
+	 * Scrolls a WebView.
+	 * 
+	 * @param webView the WebView to scroll
+	 * @param direction the direction to scroll
+	 * @param allTheWay {@code true} to scroll the view all the way up or down, {@code false} to scroll one page up or down                          or down.
+	 * @return {@code true} if more scrolling can be done
+	 */
+	
+	public boolean scrollWebView(final WebView webView, int direction, final boolean allTheWay){
+
+		if (direction == DOWN) {
+			inst.runOnMainSync(new Runnable(){
+				public void run(){
+					canScroll =  webView.pageDown(allTheWay);
+				}
+			});
+		}
+		if(direction == UP){
+			inst.runOnMainSync(new Runnable(){
+				public void run(){
+					canScroll =  webView.pageUp(allTheWay);
+				}
+			});
+		}
+		return canScroll;
 	}
 
 	/**
@@ -201,10 +228,8 @@ class Scroller {
 	 *
 	 * @param absListView the list to be scrolled
 	 * @param direction the direction to be scrolled
-	 * @param allTheWay {@code true} to scroll the view all the way up or down, {@code false} to scroll one page up
-	 *                              or down.
+	 * @param allTheWay {@code true} to scroll the view all the way up or down, {@code false} to scroll one page up or down
 	 * @return {@code true} if more scrolling can be done
-	 *
 	 */
 
 	public <T extends AbsListView> boolean scrollList(T absListView, int direction, boolean allTheWay) {
@@ -261,7 +286,7 @@ class Scroller {
 	public <T extends AbsListView> void scrollListToLine(final T view, final int line){
 		if(view == null)
 			Assert.assertTrue("AbsListView is null!", false);
-		
+
 		final int lineToMoveTo;
 		if(view instanceof GridView)
 			lineToMoveTo = line+1;
@@ -280,7 +305,6 @@ class Scroller {
 	 * Scrolls horizontally.
 	 *
 	 * @param side the side to which to scroll; {@link Side#RIGHT} or {@link Side#LEFT}
-	 *
 	 */
 
 	public void scrollToSide(Side side) {
@@ -288,7 +312,7 @@ class Scroller {
 				.getHeight();
 		int screenWidth = activityUtils.getCurrentActivity(false).getWindowManager().getDefaultDisplay()
 				.getWidth();
-		float x = screenWidth / 2.0f;
+		float x = screenWidth * 0.6f;
 		float y = screenHeight / 2.0f;
 		if (side == Side.LEFT)
 			drag(0, x, y, y, 40);
@@ -301,7 +325,6 @@ class Scroller {
 	 *
 	 * @param view the view to scroll
 	 * @param side the side to which to scroll; {@link Side#RIGHT} or {@link Side#LEFT}
-	 *
 	 */
 
 	public void scrollViewToSide(View view, Side side) {
@@ -309,7 +332,7 @@ class Scroller {
 		view.getLocationOnScreen(corners);
 		int viewHeight = view.getHeight();
 		int viewWidth = view.getWidth();
-		float x = corners[0] + viewWidth / 2.0f;
+		float x = corners[0] + viewWidth * 0.6f;
 		float y = corners[1] + viewHeight / 2.0f;
 		if (side == Side.LEFT)
 			drag(corners[0], x, y, y, 40);
